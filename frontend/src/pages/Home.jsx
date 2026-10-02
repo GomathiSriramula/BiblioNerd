@@ -8,16 +8,40 @@ import {
   fetchCategories,
 } from "../features/books/bookSlice.js";
 
+const normalizeText = (value) => String(value ?? "").trim().toLowerCase();
+
+const getBookRating = (book) => {
+  if (!Array.isArray(book?.reviews) || book.reviews.length === 0) return 0;
+  const total = book.reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0);
+  return total / book.reviews.length;
+};
+
+const sortBooks = (books, sortBy) => {
+  const next = [...books];
+
+  switch (sortBy) {
+    case "rating":
+      return next.sort((a, b) => getBookRating(b) - getBookRating(a));
+    case "trending":
+      return next.sort((a, b) => Number(b.trendingScore || 0) - Number(a.trendingScore || 0));
+    case "newest":
+    default:
+      return next.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  }
+};
+
 export default function Home() {
   const dispatch = useDispatch();
   const { items, trending, categories, status, error } = useSelector(
     (state) => state.books
   );
-  const [category, setCategory] = useState("all");
   const list = Array.isArray(items) ? items : [];
   const trend = Array.isArray(trending) ? trending : [];
   const cats = Array.isArray(categories) ? categories : [];
 
+  const [category, setCategory] = useState("all");
+  const [accessType, setAccessType] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
@@ -26,18 +50,46 @@ export default function Home() {
   }, [dispatch]);
 
   const debouncedFetch = useCallback(
-    debounce((query, cat) => {
-      dispatch(fetchBooks({ category: cat, search: query }));
+    debounce((query, cat, access) => {
+      dispatch(fetchBooks({ category: cat, search: query, accessType: access }));
     }, 300),
     [dispatch]
   );
 
   useEffect(() => {
-    debouncedFetch(searchQuery, category);
+    debouncedFetch(searchQuery, category, accessType);
     return () => debouncedFetch.cancel();
-  }, [searchQuery, category, debouncedFetch]);
+  }, [searchQuery, category, accessType, debouncedFetch]);
 
-  const gridBooks = useMemo(() => list, [list]);
+  const gridBooks = useMemo(() => {
+    const query = normalizeText(searchQuery);
+    let filtered = [...list];
+
+    if (query) {
+      filtered = filtered.filter((book) => {
+        const haystack = `${book.title || ""} ${book.author || ""}`.toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    if (category !== "all") {
+      filtered = filtered.filter((book) => book.category === category);
+    }
+
+    if (accessType !== "all") {
+      filtered = filtered.filter((book) => normalizeText(book.accessType) === accessType);
+    }
+
+    return sortBooks(filtered, sortBy);
+  }, [list, searchQuery, category, accessType, sortBy]);
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setCategory("all");
+    setAccessType("all");
+    setSortBy("newest");
+    dispatch(fetchBooks({ category: "all", search: "", accessType: "all" }));
+  };
 
   return (
     <div>
@@ -98,7 +150,7 @@ export default function Home() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
           <div>
             <h2 className="text-2xl font-light tracking-tight">Catalogue</h2>
-            <p className="text-sm text-[#7a7265] mt-1">Filter by category.</p>
+            <p className="text-sm text-[#7a7265] mt-1">Filter by category, access type, and sorting.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -129,22 +181,54 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="mb-10 w-full max-w-md">
-          <div className="relative">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7a7265]"
-              fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        <div className="mb-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="w-full max-w-md">
+            <div className="relative">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7a7265]"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by title or author..."
+                className="w-full pl-10 pr-4 py-2 border border-[#d8d0c4] rounded-full bg-white text-sm text-[#1a1a1a] focus:outline-none focus:border-[#1a1a1a] transition-colors"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={accessType}
+              onChange={(e) => setAccessType(e.target.value)}
+              className="rounded-full border border-[#d8d0c4] bg-white px-3 py-2 text-sm text-[#1a1a1a] focus:outline-none"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by title or author..."
-              className="w-full pl-10 pr-4 py-2 border border-[#d8d0c4] rounded-full bg-white text-sm text-[#1a1a1a] focus:outline-none focus:border-[#1a1a1a] transition-colors"
-            />
+              <option value="all">All access</option>
+              <option value="free">Free</option>
+              <option value="premium">Premium</option>
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="rounded-full border border-[#d8d0c4] bg-white px-3 py-2 text-sm text-[#1a1a1a] focus:outline-none"
+            >
+              <option value="newest">Newest</option>
+              <option value="rating">Top rated</option>
+              <option value="trending">Trending</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-full border border-[#d8d0c4] bg-[#f7f4ee] px-3 py-2 text-sm text-[#1a1a1a] hover:bg-[#efe9df] transition-colors"
+            >
+              Clear Filters
+            </button>
           </div>
         </div>
 
@@ -193,7 +277,7 @@ export default function Home() {
           ))}
         </div>
         {status === "succeeded" && gridBooks.length === 0 && (
-          <p className="text-sm text-[#7a7265]">No books in this category yet.</p>
+          <p className="text-sm text-[#7a7265]">No books match your current filters.</p>
         )}
       </section>
     </div>

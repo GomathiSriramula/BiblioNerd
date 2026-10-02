@@ -35,6 +35,28 @@ const BOOK_CATEGORIES = [
   "Art"
 ];
 
+const normalizeText = (value) => String(value ?? "").trim().toLowerCase();
+
+const getBookRating = (book) => {
+  if (!Array.isArray(book?.reviews) || book.reviews.length === 0) return 0;
+  const total = book.reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0);
+  return total / book.reviews.length;
+};
+
+const sortBooks = (books, sortBy) => {
+  const next = [...books];
+
+  switch (sortBy) {
+    case "rating":
+      return next.sort((a, b) => getBookRating(b) - getBookRating(a));
+    case "trending":
+      return next.sort((a, b) => Number(b.trendingScore || 0) - Number(a.trendingScore || 0));
+    case "newest":
+    default:
+      return next.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  }
+};
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -43,7 +65,9 @@ export default function AdminPanel() {
   const [booksLoading, setBooksLoading] = useState(false);
   const [booksError, setBooksError] = useState(null);
   const [bookSearch, setBookSearch] = useState("");
+  const [bookCategory, setBookCategory] = useState("all");
   const [bookAccessType, setBookAccessType] = useState("all");
+  const [bookSortBy, setBookSortBy] = useState("newest");
 
   // User State
   const [users, setUsers] = useState([]);
@@ -71,7 +95,7 @@ export default function AdminPanel() {
 
   useEffect(() => {
     if (activeTab === "books") {
-      debouncedSearch(bookSearch, bookAccessType);
+      debouncedSearch(bookSearch, bookCategory, bookAccessType);
     } else if (activeTab === "users") {
       loadUsers();
     } else if (activeTab === "overview") {
@@ -83,16 +107,21 @@ export default function AdminPanel() {
 
   useEffect(() => {
     if (activeTab === "books") {
-      debouncedSearch(bookSearch, bookAccessType);
+      debouncedSearch(bookSearch, bookCategory, bookAccessType);
     }
     return () => debouncedSearch.cancel();
-  }, [bookSearch, bookAccessType]);
+  }, [bookSearch, bookCategory, bookAccessType]);
 
   const debouncedSearch = useCallback(
-    debounce(async (query, filterAccess) => {
+    debounce(async (query, categoryFilter = "all", filterAccess = "all") => {
       setBooksLoading(true);
       try {
-        const { data } = await api.get(`/books?search=${query}&accessType=${filterAccess}`);
+        const params = new URLSearchParams();
+        if (query) params.set("search", query);
+        if (categoryFilter && categoryFilter !== "all") params.set("category", categoryFilter);
+        if (filterAccess && filterAccess !== "all") params.set("accessType", filterAccess);
+
+        const { data } = await api.get(`/books${params.toString() ? `?${params.toString()}` : ""}`);
         setBooks(Array.isArray(data.books) ? data.books : []);
       } catch (err) {
         setBooksError(err.response?.data?.message || "Failed to load books");
@@ -102,6 +131,28 @@ export default function AdminPanel() {
     }, 300),
     []
   );
+
+  const filteredBooks = useMemo(() => {
+    const query = normalizeText(bookSearch);
+    let next = [...books];
+
+    if (query) {
+      next = next.filter((book) => {
+        const haystack = `${book.title || ""} ${book.author || ""}`.toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    if (bookCategory !== "all") {
+      next = next.filter((book) => book.category === bookCategory);
+    }
+
+    if (bookAccessType !== "all") {
+      next = next.filter((book) => normalizeText(book.accessType) === bookAccessType);
+    }
+
+    return sortBooks(next, bookSortBy);
+  }, [books, bookSearch, bookCategory, bookAccessType, bookSortBy]);
 
   async function loadUsers() {
     setUsersLoading(true);
@@ -157,12 +208,20 @@ export default function AdminPanel() {
     setError(null);
   }
 
+  function clearBookFilters() {
+    setBookSearch("");
+    setBookCategory("all");
+    setBookAccessType("all");
+    setBookSortBy("newest");
+    debouncedSearch("", "all", "all");
+  }
+
   async function handleDeleteBook(bookId) {
     if (!window.confirm("Delete this book permanently?")) return;
     try {
       await api.delete(`/books/${bookId}`);
       setMessage("Book deleted.");
-      debouncedSearch(bookSearch, bookAccessType);
+      debouncedSearch(bookSearch, bookCategory, bookAccessType);
     } catch (err) {
       setError(err.response?.data?.message || "Delete failed");
     }
@@ -400,11 +459,21 @@ export default function AdminPanel() {
             <div className="mb-6 flex gap-4 md:items-center flex-col md:flex-row">
               <input
                 type="text"
-                placeholder="Search tightly by title..."
+                placeholder="Search by title or author..."
                 value={bookSearch}
                 onChange={e => setBookSearch(e.target.value)}
                 className="w-full max-w-xs rounded-full border border-[#d8d0c4] bg-[#f7f4ee] px-4 py-2 text-sm text-[#1a1a1a] focus:outline-none"
               />
+              <select
+                value={bookCategory}
+                onChange={e => setBookCategory(e.target.value)}
+                className="w-full max-w-xs rounded-full border border-[#d8d0c4] bg-[#f7f4ee] px-4 py-2 text-sm text-[#1a1a1a] focus:outline-none"
+              >
+                <option value="all">All Categories</option>
+                {BOOK_CATEGORIES.map((categoryOption) => (
+                  <option key={categoryOption} value={categoryOption}>{categoryOption}</option>
+                ))}
+              </select>
               <select
                 value={bookAccessType}
                 onChange={e => setBookAccessType(e.target.value)}
@@ -414,6 +483,22 @@ export default function AdminPanel() {
                 <option value="free">Free</option>
                 <option value="premium">Premium</option>
               </select>
+              <select
+                value={bookSortBy}
+                onChange={e => setBookSortBy(e.target.value)}
+                className="w-full max-w-xs rounded-full border border-[#d8d0c4] bg-[#f7f4ee] px-4 py-2 text-sm text-[#1a1a1a] focus:outline-none"
+              >
+                <option value="newest">Newest</option>
+                <option value="rating">Top rated</option>
+                <option value="trending">Trending</option>
+              </select>
+              <button
+                type="button"
+                onClick={clearBookFilters}
+                className="rounded-full border border-[#d8d0c4] bg-[#f7f4ee] px-3 py-2 text-sm text-[#1a1a1a] hover:bg-[#efe9df] transition-colors"
+              >
+                Clear Filters
+              </button>
             </div>
 
             {booksLoading ? (
@@ -422,10 +507,10 @@ export default function AdminPanel() {
               <p className="mt-4 text-sm text-red-800">{booksError}</p>
             ) : (
               <div className="mt-6 space-y-4">
-                {books.length === 0 ? (
+                {filteredBooks.length === 0 ? (
                   <p className="text-sm text-[#7a7265]">No books match filters.</p>
                 ) : (
-                  books.map((book) => (
+                  filteredBooks.map((book) => (
                     <div key={book._id} className="rounded-2xl border border-[#e3ddd0] bg-[#f7f4ee] p-4">
                       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div>
