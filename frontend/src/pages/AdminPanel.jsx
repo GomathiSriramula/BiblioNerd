@@ -6,6 +6,35 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer
 } from 'recharts';
 
+const BOOK_CATEGORIES = [
+  "Fiction",
+  "Non-Fiction",
+  "Romance",
+  "Mystery",
+  "Thriller",
+  "Science Fiction",
+  "Fantasy",
+  "Biography",
+  "Autobiography",
+  "History",
+  "Science",
+  "Technology",
+  "Education",
+  "Self-Help",
+  "Business",
+  "Finance",
+  "Health",
+  "Travel",
+  "Children",
+  "Comics",
+  "Poetry",
+  "Philosophy",
+  "Religion",
+  "Politics",
+  "Cooking",
+  "Art"
+];
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -480,12 +509,19 @@ export default function AdminPanel() {
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-[#7a7265] mb-1">Category</label>
-                  <input
+                  <select
                     required
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full rounded-md border border-[#d8d0c4] bg-[#f7f4ee] px-3 py-2 text-sm focus:outline-none"
-                  />
+                  >
+                    <option value="" disabled>Select a category</option>
+                    {BOOK_CATEGORIES.map((bookCategory) => (
+                      <option key={bookCategory} value={bookCategory}>
+                        {bookCategory}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-[#7a7265] mb-1">Trending Score</label>
